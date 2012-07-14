@@ -102,9 +102,9 @@ class DCRawFS(fuse.Fuse):
     def get_cached_filename(self, path):
         md5 = hashlib.md5()
         stat = os.stat(self.root + path)
-        md5.update(str(stat.st_ino))
-        md5.update('/')
         md5.update(str(stat.st_dev))
+        md5.update('/')
+        md5.update(str(stat.st_ino))
         return '%s/%s-%s.jpg' % (
                 self.cache_dir,
                 md5.hexdigest(),
@@ -242,5 +242,5 @@ if __name__ == '__main__':
         fs.flags = 0
         fs.multithreaded = 0
         fs.loglevel = ""
-        fs.cache_dir = "/tmp/imcache"
+        fs.cache_dir = "/tmp/dcrawfs"
         fs.main()
