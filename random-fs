@@ -1,0 +1,140 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+
+import fuse
+import logging
+import logging.handlers
+import os
+import random
+import re
+import socket
+import sys
+import syslog
+
+fuse.fuse_python_api = (0, 2)
+
+
+log = logging.getLogger('randomfs')
+try:
+    formatter = logging.Formatter("%(name)s[%(process)d]: %(levelname)s: %(message)s")
+    syslogger = logging.handlers.SysLogHandler(
+        "/dev/log",
+        facility=logging.handlers.SysLogHandler.LOG_DAEMON)
+    syslogger.setFormatter(formatter)
+    log.addHandler(syslogger)
+except socket.error:
+    # Syslog is not available. This usually happens because a partition is being auto-mounted
+    # before syslog and rpcbind services have started. In that case, execution will continue
+    # with the Syslog handler disabled.
+    pass
+
+
+class LoggingWrapper:
+    def __init__(self, name):
+        self.stream_name = name
+    def write(self, data):
+        log.debug("[%s] %s" % (self.stream_name, data.rstrip('\n').lstrip('\n')))
+
+class RandomFS(fuse.Fuse):
+    """
+    This class alows to mount a directory and only see a random selection of files during traversal
+    """
+
+    def get_all_files(self, path):
+        os.chdir(self.root + path)
+        for root, dirs, files in os.walk('./'):
+            for child in files:
+                yield self.encode(os.path.join(root, child)[2:])
+
+    def encode(self, path):
+        return re.sub('/', '$', re.sub('\$', '$$', path))
+
+    def decode(self, path):
+        return re.sub('//', '$', re.sub('\$', '/', path))
+
+    def __init__(self, *args, **kw):
+        """
+        RandomFS Initialisation
+        """
+        fuse.Fuse.__init__(self, *args, **kw)
+        self._openedFiles = {}
+        self.block_size = 128
+
+    def main(self, *a, **kw):
+
+        if self.loglevel == 'debug':
+           log.setLevel(logging.DEBUG)
+
+        log.debug('Root: %s', self.root)
+
+        self.count = int(self.count)
+
+        log.debug("Initialisation complete")
+
+        sys.stdout = LoggingWrapper('stdout')
+        sys.stderr = LoggingWrapper('stderr')
+
+        return fuse.Fuse.main(self, *a, **kw)
+
+    def getattr(self, path):
+       log.debug('randomfs.getattr(%s)', path)
+       if path.endswith('/*'):
+           path = path[:-1]
+       return os.lstat(self.root + self.decode(path))
+
+
+    def readdir(self, path, offset):
+        log.debug('randomfs.readdir(%s, %s)' % (path, offset))
+        chosen = []
+        for child in enumerate(self.get_all_files(path)):
+            if child[0] < self.count:
+                log.debug('Choosing ' + child[1])
+                chosen.append(child[1])
+            else:
+                index = random.randint(0, child[0])
+                if index < self.count:
+                    chosen[index] = child[1]
+        for choice in ['.', '..'] + chosen:
+            yield fuse.Direntry(choice)
+
+    def open(self, path, flags):
+        log.debug('randomfs.open(%s, %s)' % (path, flags))
+        if self._openedFiles.has_key(path):
+            return
+        self._openedFiles[path] = open(self.root + self.decode(path), 'rb')
+
+    def read(self, path, length, offset):
+        log.debug('randomfs.read(path: %s, length: %s, offset: %s)' % (path, length, offset))
+        self._openedFiles[path].seek(offset)
+        return self._openedFiles[path].read(length)
+
+    def release(self, path, flags):
+        self._openedFiles[path].close()
+        del self._openedFiles[path]
+        return 0
+
+if __name__ == '__main__':
+    usage = """RandomFS: Random selection of files from a given directory tree\n""" + fuse.Fuse.fusage
+
+    fs = RandomFS(
+            version = "%prog" + fuse.__version__,
+            usage = usage,
+            dash_s_do = 'setsingle'
+    )
+
+    fs.parser.add_option(mountopt = "root",
+            metavar = "PATH", default = "/", help = "Root directory")
+    fs.parser.add_option(mountopt = "log", dest = "log",
+            metavar = "PATH", default = "/tmp/RandomFS.log", help = "Log filename")
+    fs.parser.add_option(mountopt = "count",
+            metavar = " ", default = "16", help = "Count")
+    fs.parser.add_option(mountopt = "loglevel",
+            metavar = " ", default = "", help = "Log level {none, debug}")
+
+    if not fs.parse(values = fs, errex = 1).getmod('showhelp'):
+        fs.flags = 0
+        fs.multithreaded = 0
+        fs.loglevel = ""
+        fs.count = "16"
+        fs.main()
