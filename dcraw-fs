@@ -77,10 +77,10 @@ class DCRawFS(fuse.Fuse):
     """
 
     def is_image(self, path):
-        command_line = ['identify', self.root + path + '[0]']
+        command_line = ['file', '--brief', '--mime-type', self.root + path]
         log.debug(command_line)
-        returncode = subprocess.call(command_line)
-        return returncode == 0
+        output = subprocess.check_output(command_line)
+        return output.startswith('image/')
 
     def is_raw_file(self, path):
         command_line = ['dcraw', '-i', self.root + path]
@@ -167,7 +167,7 @@ class DCRawFS(fuse.Fuse):
         log.debug('dcrawfs.readdir(%s, %s)' % (path, offset))
         for entry in os.listdir(self.root + path):
             entrypath = os.path.join(path, entry)
-            if self.is_raw_file(entrypath) or self.is_image(entrypath):
+            if self.is_image(entrypath):
                 yield fuse.Direntry(entry + ".jpg")
             else:
                 yield fuse.Direntry(entry)
@@ -241,6 +241,6 @@ if __name__ == '__main__':
     if not fs.parse(values = fs, errex = 1).getmod('showhelp'):
         fs.flags = 0
         fs.multithreaded = 0
-        fs.loglevel = ""
+        fs.loglevel = "debug"
         fs.cache_dir = "/tmp/dcrawfs"
         fs.main()
