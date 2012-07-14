@@ -37,6 +37,7 @@
 import os
 import sys
 import fuse
+import errno
 import pipes
 import socket
 import syslog
@@ -141,9 +142,11 @@ class DCRawFS(fuse.Fuse):
                if path.endswith('/*'):
                    path = path[:-1]
                return os.lstat(self.root + path)
+       except OSError, e:
+           return -e.errno
        except:
            log.exception("Failed:")
-       return None
+           return -errno.ENOSYS
 
 
     def readdir(self, path, offset):
