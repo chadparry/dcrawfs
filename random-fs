@@ -48,10 +48,10 @@ class RandomFS(fuse.Fuse):
                 yield self.encode(os.path.join(root, child)[2:])
 
     def encode(self, path):
-        return re.sub('/', '$', re.sub('\$', '$$', path))
+        return re.sub('/', '$', re.sub('\\$', '$$', path))
 
     def decode(self, path):
-        return re.sub('//', '$', re.sub('\$', '/', path))
+        return re.sub('//', '$', re.sub('\\$', '/', path))
 
     def __init__(self, *args, **kw):
         """
