@@ -208,11 +208,11 @@ if __name__ == '__main__':
     fs.parser.add_option(mountopt = "height",
             metavar = " ", default = "768", help = "Height")
     fs.parser.add_option(mountopt = "loglevel",
-            metavar = " ", default = "debug", help = "Log level {none, debug}")
+            metavar = " ", default = "", help = "Log level {none, debug}")
 
     if not fs.parse(values = fs, errex = 1).getmod('showhelp'):
         fs.flags = 0
         fs.multithreaded = 0
-        fs.loglevel = "debug"
+        fs.loglevel = ""
         fs.cache_dir = "/tmp/imcache"
         fs.main()
