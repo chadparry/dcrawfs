@@ -127,11 +127,11 @@ class DCRawFS(fuse.Fuse):
            if self.is_from_raw_file(path):
                fname = self.get_cached_filename(self.orig_filename(path))
                if not os.path.exists(fname):
-                   return os.stat(self.root + self.orig_filename(path))
+                   return os.lstat(self.root + self.orig_filename(path))
                else:
-                   return os.stat(fname)
+                   return os.lstat(fname)
            else:
-               return os.stat(self.root + path)
+               return os.lstat(self.root + path)
        except:
            pass
        return None
