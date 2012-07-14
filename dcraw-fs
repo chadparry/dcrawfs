@@ -93,11 +93,14 @@ class DCRawFS(fuse.Fuse):
 
     def get_cached_filename(self, path):
         md5 = hashlib.md5()
-        md5.update(path)
+        stat = os.stat(self.root + path)
+        md5.update(str(stat.st_ino))
+        md5.update('/')
+        md5.update(str(stat.st_dev))
         return '%s/%s-%s.jpg' % (
                 self.cache_dir,
-                os.path.basename(path),
-                md5.hexdigest()
+                md5.hexdigest(),
+                os.path.basename(path)
         )
 
     def __init__(self, *args, **kw):
@@ -143,7 +146,7 @@ class DCRawFS(fuse.Fuse):
                    path = path[:-1]
                return os.lstat(self.root + path)
        except OSError, e:
-           return -e.errno
+           raise
        except:
            log.exception("Failed:")
            return -errno.ENOSYS
@@ -189,6 +192,8 @@ class DCRawFS(fuse.Fuse):
     def release(self, path, flags):
         self._openedFiles[path].close()
         del self._openedFiles[path]
+        fname = self.get_cached_filename(self.orig_filename(path))
+        os.remove(fname)
         return 0
 
 if __name__ == '__main__':
