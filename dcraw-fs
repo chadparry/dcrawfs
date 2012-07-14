@@ -70,7 +70,7 @@ class DCRawFS(fuse.Fuse):
 
     def is_raw_file(self, path):
         basename, extension = os.path.splitext(path)
-        return extension.lower() in ('.nef', '.raw', '.crw')
+        return extension.lower() in ('.nef', '.raw', '.crw', '.cr2')
 
     def is_from_raw_file(self, path):
         filename, extension = os.path.splitext(path)
