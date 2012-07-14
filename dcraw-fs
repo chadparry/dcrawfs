@@ -166,7 +166,7 @@ class DCRawFS(fuse.Fuse):
             log.debug('fname: from %s to %s' % (path, fname))
             if not os.path.exists(fname):
                 log.debug('Write thumbnail %s for path %s' % (fname, path))
-                command_line = 'dcraw -w -c -e %s | convert -gamma 2.2 -thumbnail %sx%s -auto-orient -unsharp 0x.5 -quality 85 - %s' % (
+                command_line = 'dcraw -c -w -W -p /usr/share/color/icc/6131_PS.ICC %s | convert -thumbnail %sx%s -auto-orient -quality 85 - %s' % (
                         pipes.quote(self.root + filename),
                         self.width, self.height,
                         pipes.quote(fname)
