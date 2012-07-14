@@ -119,8 +119,6 @@ class DCRawFS(fuse.Fuse):
         sys.stdout = LoggingWrapper('stdout')
         sys.stderr = LoggingWrapper('stderr')
 
-        print 'toto'
-
         return fuse.Fuse.main(self, *a, **kw)
 
     def getattr(self, path):
