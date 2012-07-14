@@ -131,9 +131,11 @@ class DCRawFS(fuse.Fuse):
                else:
                    return os.lstat(fname)
            else:
+               if path.endswith('/*'):
+                   path = path[:-1]
                return os.lstat(self.root + path)
        except:
-           pass
+           log.exception("Failed:")
        return None
 
 
