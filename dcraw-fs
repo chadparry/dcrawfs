@@ -76,17 +76,25 @@ class DCRawFS(fuse.Fuse):
     and convert these images to JPEG using dcraw on the fly
     """
 
-    def is_raw_file(self, path):
-        basename, extension = os.path.splitext(path)
-        return extension.lower() in ('.nef', '.raw', '.crw', '.cr2')
+    def is_image(self, path):
+        command_line = ['identify', self.root + path]
+        log.debug(command_line)
+        returncode = subprocess.call(command_line)
+        return returncode == 0
 
-    def is_from_raw_file(self, path):
+    def is_raw_file(self, path):
+        command_line = ['dcraw', '-i', self.root + path]
+        log.debug(command_line)
+        returncode = subprocess.call(command_line)
+        return returncode == 0
+
+    def is_from_image(self, path):
         filename, extension = os.path.splitext(path)
-        return extension == ".jpg" and self.is_raw_file(filename)
+        return extension == ".jpg"
 
     def orig_filename(self, path):
-        if self.is_from_raw_file(path):
-            filename, extension = os.path.splitext(path)
+        filename, extension = os.path.splitext(path)
+        if extension == ".jpg":
             return filename
         else:
             return path
@@ -135,12 +143,16 @@ class DCRawFS(fuse.Fuse):
     def getattr(self, path):
        log.debug('dcrawfs.getattr(%s)', path)
        try:
-           if self.is_from_raw_file(path):
-               fname = self.get_cached_filename(self.orig_filename(path))
-               if not os.path.exists(fname):
-                   return os.lstat(self.root + self.orig_filename(path))
-               else:
+           if self.is_from_image(path):
+               orig_filename = self.orig_filename(path)
+               fname = self.get_cached_filename(orig_filename)
+               if os.path.exists(fname):
                    return os.lstat(fname)
+               else:
+                   # Attributes like the size will be incorrect,
+                   # since the thumb hasn't been generated yet,
+                   # but computing real stats would be resource intensive.
+                   return os.lstat(self.root + orig_filename)
            else:
                if path.endswith('/*'):
                    path = path[:-1]
@@ -151,11 +163,11 @@ class DCRawFS(fuse.Fuse):
            log.exception("Failed:")
            return -errno.ENOSYS
 
-
     def readdir(self, path, offset):
         log.debug('dcrawfs.readdir(%s, %s)' % (path, offset))
         for entry in os.listdir(self.root + path):
-            if self.is_raw_file(entry):
+            entrypath = os.path.join(path, entry)
+            if self.is_raw_file(entrypath) or self.is_image(entrypath):
                 yield fuse.Direntry(entry + ".jpg")
             else:
                 yield fuse.Direntry(entry)
@@ -165,21 +177,29 @@ class DCRawFS(fuse.Fuse):
         if self._openedFiles.has_key(path):
             return
 
-        filename, extension = os.path.splitext(path)
-        if extension == ".jpg" and self.is_raw_file(filename):
-            # We have a raw file
+        if self.is_from_image(path):
+            filename = self.orig_filename(path)
             fname = self.get_cached_filename(filename)
             log.debug('fname: from %s to %s' % (path, fname))
             if not os.path.exists(fname):
                 log.debug('Write thumbnail %s for path %s' % (fname, path))
-                command_line = 'dcraw -c -w -W -p /usr/share/color/icc/6131_PS.ICC %s | convert -thumbnail %sx%s -auto-orient -quality 85 - %s' % (
-                        pipes.quote(self.root + filename),
-                        self.width, self.height,
-                        pipes.quote(fname)
-                )
-                log.debug(command_line)
-                p = subprocess.Popen(command_line, shell=True)
-                sts = os.waitpid(p.pid, 0)
+                if self.is_raw_file(filename):
+                    command_line = 'dcraw -c -w -W -p /usr/share/color/icc/6131_PS.ICC %s | convert -thumbnail %sx%s -quality 85 - %s' % (
+                            pipes.quote(self.root + filename),
+                            self.width, self.height,
+                            pipes.quote(fname)
+                    )
+                    log.debug(command_line)
+                    subprocess.check_call(command_line, shell=True)
+                else:
+                    command_line = ['convert',
+                            '-thumbnail', '%sx%s' % (self.width, self.height),
+                            '-auto-orient',
+                            '-quality', '85',
+                            self.root + filename,
+                            fname]
+                    log.debug(command_line)
+                    subprocess.check_call(command_line)
             self._openedFiles[path] = open(fname, 'rb')
         else:
             self._openedFiles[path] = open(self.root + path, 'rb')
