@@ -38,6 +38,7 @@ import os
 import sys
 import fuse
 import pipes
+import socket
 import syslog
 import logging
 import hashlib
@@ -49,12 +50,18 @@ fuse.fuse_python_api = (0, 2)
 
 
 log = logging.getLogger('dcrawfs')
-formatter = logging.Formatter("%(name)s[%(process)d]: %(levelname)s: %(message)s")
-syslogger = logging.handlers.SysLogHandler(
-    "/dev/log",
-    facility=logging.handlers.SysLogHandler.LOG_DAEMON)
-syslogger.setFormatter(formatter)
-log.addHandler(syslogger)
+try:
+    formatter = logging.Formatter("%(name)s[%(process)d]: %(levelname)s: %(message)s")
+    syslogger = logging.handlers.SysLogHandler(
+        "/dev/log",
+        facility=logging.handlers.SysLogHandler.LOG_DAEMON)
+    syslogger.setFormatter(formatter)
+    log.addHandler(syslogger)
+except socket.error:
+    # Syslog is not available. This usually happens because a partition is being auto-mounted
+    # before syslog and rpcbind services have started. In that case, execution will continue
+    # with the Syslog handler disabled.
+    pass
 
 class LoggingWrapper:
     def __init__(self, name):
