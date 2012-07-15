@@ -2,7 +2,10 @@
 # -*- coding: utf-8 -*-
 #
 
+import datetime
+import errno
 import fuse
+import hashlib
 import logging
 import logging.handlers
 import os
@@ -11,6 +14,7 @@ import re
 import socket
 import sys
 import syslog
+import time
 
 fuse.fuse_python_api = (0, 2)
 
@@ -41,11 +45,31 @@ class RandomFS(fuse.Fuse):
     This class alows to mount a directory and only see a random selection of files during traversal
     """
 
-    def get_all_files(self, path):
-        os.chdir(self.root + path)
-        for root, dirs, files in os.walk('./'):
+    def get_all_files(self):
+        md5 = hashlib.md5()
+        stat = os.stat(self.root)
+        md5.update(str(stat.st_dev))
+        md5.update('/')
+        md5.update(str(stat.st_ino))
+        cachedname = os.path.join(self.cache_dir, md5.hexdigest())
+        log.debug('Cached files: %s', cachedname)
+
+        if (not os.path.exists(cachedname) or
+                datetime.datetime.utcnow() -
+                datetime.datetime.utcfromtimestamp(os.stat(cachedname).st_mtime) >
+                datetime.timedelta(days=1)):
+            with open(cachedname, 'w') as cached_file:
+                for child in self.scan_all_files():
+                    print >>cached_file, child
+
+        with open(cachedname, 'r') as cached_file:
+            return map(lambda line: line.rstrip('\n'), cached_file.readlines())
+
+    def scan_all_files(self):
+        parent = self.root + '/'
+        for root, dirs, files in os.walk(parent):
             for child in files:
-                yield self.encode(os.path.join(root, child)[2:])
+                yield self.encode(os.path.join(root, child)[len(parent):])
 
     def encode(self, path):
         return re.sub('/', '$', re.sub('\\$', '$$', path))
@@ -67,6 +91,10 @@ class RandomFS(fuse.Fuse):
            log.setLevel(logging.DEBUG)
 
         log.debug('Root: %s', self.root)
+        log.debug('Cache dir: %s', self.cache_dir)
+
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
 
         self.count = int(self.count)
 
@@ -83,11 +111,12 @@ class RandomFS(fuse.Fuse):
            path = path[:-1]
        return os.lstat(self.root + self.decode(path))
 
-
     def readdir(self, path, offset):
         log.debug('randomfs.readdir(%s, %s)' % (path, offset))
+        if path != '/':
+            return -errno.ENOENT
         chosen = []
-        for child in enumerate(self.get_all_files(path)):
+        for child in enumerate(self.get_all_files()):
             if child[0] < self.count:
                 log.debug('Choosing ' + child[1])
                 chosen.append(child[1])
@@ -95,8 +124,7 @@ class RandomFS(fuse.Fuse):
                 index = random.randint(0, child[0])
                 if index < self.count:
                     chosen[index] = child[1]
-        for choice in ['.', '..'] + chosen:
-            yield fuse.Direntry(choice)
+        return map(fuse.Direntry, ['.', '..'] + chosen)
 
     def open(self, path, flags):
         log.debug('randomfs.open(%s, %s)' % (path, flags))
@@ -129,12 +157,15 @@ if __name__ == '__main__':
             metavar = "PATH", default = "/tmp/RandomFS.log", help = "Log filename")
     fs.parser.add_option(mountopt = "count",
             metavar = " ", default = "16", help = "Count")
+    fs.parser.add_option(mountopt = "cache_dir",
+            metavar = "PATH", default = "/tmp/randomfs", help = "Cache directory")
     fs.parser.add_option(mountopt = "loglevel",
             metavar = " ", default = "", help = "Log level {none, debug}")
 
     if not fs.parse(values = fs, errex = 1).getmod('showhelp'):
         fs.flags = 0
         fs.multithreaded = 0
-        fs.loglevel = ""
         fs.count = "16"
+        fs.cache_dir = "/tmp/randomfs"
+        fs.loglevel = ""
         fs.main()
