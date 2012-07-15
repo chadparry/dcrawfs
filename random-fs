@@ -152,20 +152,19 @@ if __name__ == '__main__':
     )
 
     fs.parser.add_option(mountopt = "root",
-            metavar = "PATH", default = "/", help = "Root directory")
-    fs.parser.add_option(mountopt = "log", dest = "log",
-            metavar = "PATH", default = "/tmp/RandomFS.log", help = "Log filename")
+            metavar = "PATH", help = "Root directory")
     fs.parser.add_option(mountopt = "count",
-            metavar = " ", default = "16", help = "Count")
+            metavar = " ", help = "Count")
     fs.parser.add_option(mountopt = "cache_dir",
-            metavar = "PATH", default = "/tmp/randomfs", help = "Cache directory")
+            metavar = "PATH", help = "Cache directory")
     fs.parser.add_option(mountopt = "loglevel",
-            metavar = " ", default = "", help = "Log level {none, debug}")
+            metavar = " ", help = "Log level {none, debug}")
 
-    if not fs.parse(values = fs, errex = 1).getmod('showhelp'):
+    fs.root = "/"
+    fs.count = "16"
+    fs.cache_dir = "/tmp/randomfs"
+    fs.loglevel = ""
+    if not fs.parse(values=fs, errex=1).getmod('showhelp'):
         fs.flags = 0
         fs.multithreaded = 0
-        fs.count = "16"
-        fs.cache_dir = "/tmp/randomfs"
-        fs.loglevel = ""
         fs.main()

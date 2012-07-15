@@ -117,11 +117,11 @@ class DCRawFS(fuse.Fuse):
         md5.update(str(stat.st_dev))
         md5.update('/')
         md5.update(str(stat.st_ino))
-        return os.path.join(self.cache_dir),
+        return os.path.join(self.cache_dir,
                 '%s-%s.jpg' % (
                     md5.hexdigest(),
                     os.path.basename(path)
-                )
+                ))
 
     def __init__(self, *args, **kw):
         """
@@ -257,21 +257,22 @@ if __name__ == '__main__':
     )
 
     fs.parser.add_option(mountopt = "root",
-            metavar = "PATH", default = "/", help = "Root directory")
-    fs.parser.add_option(mountopt = "log", dest = "log",
-            metavar = "PATH", default = "/tmp/DCRawFS.log", help = "Log filename")
+            metavar = "PATH", help = "Root directory")
     fs.parser.add_option(mountopt = "cache_dir",
-            metavar = "PATH", default = "/tmp/dcrawfs", help = "Cache directory")
+            metavar = "PATH", help = "Cache directory")
     fs.parser.add_option(mountopt = "width",
-            metavar = " ", default = "1024", help = "Width")
+            metavar = " ", help = "Width")
     fs.parser.add_option(mountopt = "height",
-            metavar = " ", default = "768", help = "Height")
+            metavar = " ", help = "Height")
     fs.parser.add_option(mountopt = "loglevel",
-            metavar = " ", default = "", help = "Log level {none, debug}")
+            metavar = " ", help = "Log level {none, debug}")
 
-    if not fs.parse(values = fs, errex = 1).getmod('showhelp'):
+    fs.root = "/"
+    fs.cache_dir = "/tmp/dcrawfs"
+    fs.width = "1024"
+    fs.height = "768"
+    fs.loglevel = ""
+    if not fs.parse(values=fs, errex=1).getmod('showhelp'):
         fs.flags = 0
         fs.multithreaded = 0
-        fs.cache_dir = "/tmp/dcrawfs"
-        fs.loglevel = ""
         fs.main()
