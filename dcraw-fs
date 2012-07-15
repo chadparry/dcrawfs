@@ -201,9 +201,10 @@ class DCRawFS(fuse.Fuse):
                     dcraw_command_line = ['dcraw',
                             '-c',
                             '-w',
-                            '-W',
-                            '-p', '/usr/share/color/icc/6131_PS.ICC',
-                            self.root + filename]
+                            '-W']
+                    if self.profile:
+                        dcraw_command_line.extend(['-p', self.profile])
+                    dcraw_command_line.append(self.root + filename)
                     convert_command_line = ['convert',
                             '-thumbnail', '%sx%s' % (self.width, self.height),
                             '-quality', '85',
@@ -264,6 +265,8 @@ if __name__ == '__main__':
             metavar = " ", help = "Width")
     fs.parser.add_option(mountopt = "height",
             metavar = " ", help = "Height")
+    fs.parser.add_option(mountopt = "profile",
+            metavar = " ", help = "Color profile")
     fs.parser.add_option(mountopt = "loglevel",
             metavar = " ", help = "Log level {none, debug}")
 
@@ -271,6 +274,7 @@ if __name__ == '__main__':
     fs.cache_dir = "/tmp/dcrawfs"
     fs.width = "1024"
     fs.height = "768"
+    fs.profile = ""
     fs.loglevel = ""
     if not fs.parse(values=fs, errex=1).getmod('showhelp'):
         fs.flags = 0
