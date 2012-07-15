@@ -63,7 +63,7 @@ class RandomFS(fuse.Fuse):
                     print >>cached_file, child
 
         with open(cachedname, 'r') as cached_file:
-            return map(lambda line: line.rstrip('\n'), cached_file.readlines())
+            return map(lambda line: line.rstrip('\n'), cached_file)
 
     def scan_all_files(self):
         parent = self.root + '/'
@@ -115,15 +115,8 @@ class RandomFS(fuse.Fuse):
         log.debug('randomfs.readdir(%s, %s)' % (path, offset))
         if path != '/':
             return -errno.ENOENT
-        chosen = []
-        for child in enumerate(self.get_all_files()):
-            if child[0] < self.count:
-                log.debug('Choosing ' + child[1])
-                chosen.append(child[1])
-            else:
-                index = random.randint(0, child[0])
-                if index < self.count:
-                    chosen[index] = child[1]
+        all_files = self.get_all_files()
+        chosen = random.sample(all_files, min(self.count, len(all_files)))
         return map(fuse.Direntry, ['.', '..'] + chosen)
 
     def open(self, path, flags):
