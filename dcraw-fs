@@ -144,6 +144,7 @@ class DCRawFS(fuse.Fuse):
 
         self.width = int(self.width)
         self.height = int(self.height)
+        self.profile = os.path.join('/usr/share/color/icc', self.profile)
 
         log.debug("Initialisation complete")
 
