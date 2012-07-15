@@ -43,6 +43,7 @@ import socket
 import syslog
 import logging
 import hashlib
+import mimetypes
 import subprocess
 import logging.handlers
 # Nice tree heh !
@@ -77,10 +78,9 @@ class DCRawFS(fuse.Fuse):
     """
 
     def is_image(self, path):
-        command_line = ['file', '--brief', '--mime-type', self.root + path]
-        log.debug(command_line)
-        output = subprocess.check_output(command_line)
-        return output.startswith('image/')
+        mimetype = mimetypes.guess_type(path)[0]
+        return (mimetype != None and
+                (mimetype.startswith('image/') or mimetype.startswith('video/')))
 
     def is_raw_file(self, path):
         command_line = ['dcraw', '-i', self.root + path]
@@ -92,12 +92,24 @@ class DCRawFS(fuse.Fuse):
         filename, extension = os.path.splitext(path)
         return extension == ".jpg"
 
-    def orig_filename(self, path):
-        filename, extension = os.path.splitext(path)
-        if extension == ".jpg":
-            return filename
+    def split_path(self, path):
+        head, tail = os.path.split(path)
+        if head == path or tail == path:
+            return [path]
         else:
-            return path
+            return self.split_path(head) + [tail]
+
+    def orig_filename(self, filename):
+        basename, extension = os.path.splitext(filename)
+        if extension == ".jpg":
+            return basename
+        else:
+            return filename
+
+    def orig_path(self, path):
+        path_parts = self.split_path(path)
+        orig_path_parts = map(self.orig_filename, path_parts)
+        return os.path.join(*orig_path_parts)
 
     def get_cached_filename(self, path):
         md5 = hashlib.md5()
@@ -144,20 +156,20 @@ class DCRawFS(fuse.Fuse):
        log.debug('dcrawfs.getattr(%s)', path)
        try:
            if self.is_from_image(path):
-               orig_filename = self.orig_filename(path)
-               fname = self.get_cached_filename(orig_filename)
-               if os.path.exists(fname):
-                   return os.lstat(fname)
+               orig_path = self.orig_path(path)
+               cachedname = self.get_cached_filename(orig_path)
+               if os.path.exists(cachedname):
+                   return os.lstat(cachedname)
                else:
                    # Attributes like the size will be incorrect,
                    # since the thumb hasn't been generated yet,
                    # but computing real stats would be resource intensive.
-                   return os.lstat(self.root + orig_filename)
+                   return os.lstat(self.root + orig_path)
            else:
                if path.endswith('/*'):
                    path = path[:-1]
-               return os.lstat(self.root + path)
-       except OSError, e:
+               return os.lstat(self.root + self.orig_path(path))
+       except OSError:
            raise
        except:
            log.exception("Failed:")
@@ -165,7 +177,7 @@ class DCRawFS(fuse.Fuse):
 
     def readdir(self, path, offset):
         log.debug('dcrawfs.readdir(%s, %s)' % (path, offset))
-        for entry in os.listdir(self.root + path):
+        for entry in os.listdir(self.root + self.orig_path(path)):
             entrypath = os.path.join(path, entry)
             if self.is_image(entrypath):
                 yield fuse.Direntry(entry + ".jpg")
@@ -178,31 +190,50 @@ class DCRawFS(fuse.Fuse):
             return
 
         if self.is_from_image(path):
-            filename = self.orig_filename(path)
-            fname = self.get_cached_filename(filename)
-            log.debug('fname: from %s to %s' % (path, fname))
-            if not os.path.exists(fname):
-                log.debug('Write thumbnail %s for path %s' % (fname, path))
+            filename = self.orig_path(path)
+            cachedname = self.get_cached_filename(filename)
+            log.debug('cachedname: from %s to %s' % (path, cachedname))
+            if os.path.exists(cachedname):
+                openname = cachedname
+            else:
+                log.debug('Write thumbnail %s for path %s' % (cachedname, path))
                 if self.is_raw_file(filename):
-                    command_line = 'dcraw -c -w -W -p /usr/share/color/icc/6131_PS.ICC %s | convert -thumbnail %sx%s -quality 85 - %s' % (
-                            pipes.quote(self.root + filename),
-                            self.width, self.height,
-                            pipes.quote(fname)
-                    )
-                    log.debug(command_line)
-                    subprocess.check_call(command_line, shell=True)
+                    dcraw_command_line = ['dcraw',
+                            '-c',
+                            '-w',
+                            '-W',
+                            '-p', '/usr/share/color/icc/6131_PS.ICC',
+                            self.root + filename]
+                    convert_command_line = ['convert',
+                            '-thumbnail', '%sx%s' % (self.width, self.height),
+                            '-quality', '85',
+                            '-',
+                            cachedname]
+                    log.debug((dcraw_command_line, convert_command_line))
+                    dcraw_proc = subprocess.Popen(dcraw_command_line, stdout=subprocess.PIPE)
+                    convert_proc = subprocess.Popen(convert_command_line, stdin=dcraw_proc.stdout)
+                    dcraw_proc.stdout.close()
+                    returncode = convert_proc.wait()
+                    if returncode == 0:
+                        openname = cachedname
+                    else:
+                        openname = self.root + filename
                 else:
                     command_line = ['convert',
                             '-thumbnail', '%sx%s' % (self.width, self.height),
                             '-auto-orient',
                             '-quality', '85',
                             self.root + filename + '[0]',
-                            fname]
+                            cachedname]
                     log.debug(command_line)
-                    subprocess.check_call(command_line)
-            self._openedFiles[path] = open(fname, 'rb')
+                    returncode = subprocess.call(command_line)
+                    if returncode == 0:
+                        openname = cachedname
+                    else:
+                        openname = self.root + filename
         else:
-            self._openedFiles[path] = open(self.root + path, 'rb')
+            openname = self.root + self.orig_path(path)
+        self._openedFiles[path] = open(openname, 'rb')
 
     def read(self, path, length, offset):
         log.debug('dcrawfs.read(path: %s, length: %s, offset: %s)' % (path, length, offset))
@@ -212,8 +243,8 @@ class DCRawFS(fuse.Fuse):
     def release(self, path, flags):
         self._openedFiles[path].close()
         del self._openedFiles[path]
-        fname = self.get_cached_filename(self.orig_filename(path))
-        os.remove(fname)
+        cachedname = self.get_cached_filename(self.orig_path(path))
+        os.remove(cachedname)
         return 0
 
 if __name__ == '__main__':
@@ -230,7 +261,7 @@ if __name__ == '__main__':
     fs.parser.add_option(mountopt = "log", dest = "log",
             metavar = "PATH", default = "/tmp/DCRawFS.log", help = "Log filename")
     fs.parser.add_option(mountopt = "cache_dir",
-            metavar = "PATH", default = "/tmp/imcache", help = "Cache directory")
+            metavar = "PATH", default = "/tmp/dcrawfs", help = "Cache directory")
     fs.parser.add_option(mountopt = "width",
             metavar = " ", default = "1024", help = "Width")
     fs.parser.add_option(mountopt = "height",
@@ -241,6 +272,6 @@ if __name__ == '__main__':
     if not fs.parse(values = fs, errex = 1).getmod('showhelp'):
         fs.flags = 0
         fs.multithreaded = 0
-        fs.loglevel = "debug"
+        fs.loglevel = ""
         fs.cache_dir = "/tmp/dcrawfs"
         fs.main()
