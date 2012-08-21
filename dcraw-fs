@@ -77,6 +77,9 @@ class DCRawFS(fuse.Fuse):
     and convert these images to JPEG using dcraw on the fly
     """
 
+    def is_valid(self, path):
+        return self.maxsize < 0 or os.stat(path).st_size <= self.maxsize
+
     def is_image(self, path):
         mimetype = mimetypes.guess_type(path)[0]
         return (mimetype != None and
@@ -144,6 +147,7 @@ class DCRawFS(fuse.Fuse):
 
         self.width = int(self.width)
         self.height = int(self.height)
+        self.maxsize = int(self.maxsize)
         self.profile = os.path.join('/usr/share/color/icc', self.profile)
 
         log.debug("Initialisation complete")
@@ -180,10 +184,11 @@ class DCRawFS(fuse.Fuse):
         log.debug('dcrawfs.readdir(%s, %s)' % (path, offset))
         for entry in os.listdir(self.root + self.orig_path(path)):
             entrypath = os.path.join(path, entry)
-            if self.is_image(entrypath):
-                yield fuse.Direntry(entry + ".jpg")
-            else:
-                yield fuse.Direntry(entry)
+            if self.is_valid(entrypath):
+                if self.is_image(entrypath):
+                    yield fuse.Direntry(entry + ".jpg")
+                else:
+                    yield fuse.Direntry(entry)
 
     def open(self, path, flags):
         log.debug('dcrawfs.open(%s, %s)' % (path, flags))
@@ -266,6 +271,8 @@ if __name__ == '__main__':
             metavar = " ", help = "Width")
     fs.parser.add_option(mountopt = "height",
             metavar = " ", help = "Height")
+    fs.parser.add_option(mountopt = "maxsize",
+            metavar = " ", help = "Max image size")
     fs.parser.add_option(mountopt = "profile",
             metavar = " ", help = "Color profile")
     fs.parser.add_option(mountopt = "loglevel",
@@ -275,6 +282,7 @@ if __name__ == '__main__':
     fs.cache_dir = "/tmp/dcrawfs"
     fs.width = "1024"
     fs.height = "768"
+    fs.maxsize = "-1"
     fs.profile = ""
     fs.loglevel = ""
     if not fs.parse(values=fs, errex=1).getmod('showhelp'):
