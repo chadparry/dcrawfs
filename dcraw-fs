@@ -222,8 +222,8 @@ class DCRawFS(fuse.Fuse):
                         openname = self.root + filename
                 else:
                     command_line = ['convert',
-                            '-thumbnail', '%sx%s' % (self.width, self.height),
                             '-auto-orient',
+                            '-thumbnail', '%sx%s' % (self.width, self.height),
                             '-quality', '85',
                             self.root + filename + '[0]',
                             cachedname]
