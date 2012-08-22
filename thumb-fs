@@ -37,6 +37,7 @@
 import os
 import sys
 import fuse
+import stat
 import errno
 import pipes
 import socket
@@ -90,6 +91,9 @@ class DCRawFS(fuse.Fuse):
                 mimetype.startswith('image/') and
                 (self.maxsize < 0 or
                 os.stat(self.root + path).st_size <= self.maxsize))
+
+    def is_dir(self, path):
+        return stat.S_ISDIR(os.stat(self.root + path).st_mode)
 
     def is_raw_file(self, path):
         mimetype = mimetypes.guess_type(path)[0]
@@ -190,6 +194,8 @@ class DCRawFS(fuse.Fuse):
             entrypath = os.path.join(path, entry)
             if self.is_image(entrypath):
                 yield fuse.Direntry(entry + ".jpg")
+            elif self.is_dir(entrypath):
+                yield fuse.Direntry(entry)
 
     def open(self, path, flags):
         log.debug('thumbfs.open(%s, %s)' % (path, flags))
