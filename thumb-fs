@@ -78,7 +78,9 @@ class DCRawFS(fuse.Fuse):
     """
 
     def is_valid(self, path):
-        return self.maxsize < 0 or os.stat(path).st_size <= self.maxsize
+        return (self.maxsize < 0 or
+                os.stat(self.root + path).st_size <= self.maxsize)
+
 
     def is_image(self, path):
         mimetype = mimetypes.guess_type(path)[0]
