@@ -227,8 +227,9 @@ class DCRawFS(fuse.Fuse):
                     dcraw_proc = subprocess.Popen(dcraw_command_line, stdout=subprocess.PIPE)
                     convert_proc = subprocess.Popen(convert_command_line, stdin=dcraw_proc.stdout)
                     dcraw_proc.stdout.close()
-                    returncode = convert_proc.wait()
-                    if returncode == 0:
+                    dcraw_returncode = dcraw_proc.wait()
+                    convert_returncode = convert_proc.wait()
+                    if dcraw_returncode == 0 and convert_returncode == 0:
                         openname = cachedname
                     else:
                         openname = self.root + filename
