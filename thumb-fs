@@ -84,8 +84,7 @@ class DCRawFS(fuse.Fuse):
 
     def is_image(self, path):
         mimetype = mimetypes.guess_type(path)[0]
-        return (mimetype != None and
-                (mimetype.startswith('image/') or mimetype.startswith('video/')))
+        return mimetype != None and mimetype.startswith('image/')
 
     def is_raw_file(self, path):
         command_line = ['dcraw', '-i', self.root + path]
