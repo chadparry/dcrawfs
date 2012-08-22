@@ -84,14 +84,12 @@ class DCRawFS(fuse.Fuse):
             'image/x-olympus-orf',
             ))
 
-    def is_valid(self, path):
-        return (self.maxsize < 0 or
-                os.stat(self.root + path).st_size <= self.maxsize)
-
-
     def is_image(self, path):
         mimetype = mimetypes.guess_type(path)[0]
-        return mimetype != None and mimetype.startswith('image/')
+        return (mimetype != None and
+                mimetype.startswith('image/') and
+                (self.maxsize < 0 or
+                os.stat(self.root + path).st_size <= self.maxsize))
 
     def is_raw_file(self, path):
         mimetype = mimetypes.guess_type(path)[0]
@@ -190,11 +188,8 @@ class DCRawFS(fuse.Fuse):
         log.debug('thumbfs.readdir(%s, %s)' % (path, offset))
         for entry in os.listdir(self.root + self.orig_path(path)):
             entrypath = os.path.join(path, entry)
-            if self.is_valid(entrypath):
-                if self.is_image(entrypath):
-                    yield fuse.Direntry(entry + ".jpg")
-                else:
-                    yield fuse.Direntry(entry)
+            if self.is_image(entrypath):
+                yield fuse.Direntry(entry + ".jpg")
 
     def open(self, path, flags):
         log.debug('thumbfs.open(%s, %s)' % (path, flags))
