@@ -4,11 +4,11 @@
 # Copyright © 2010 Camille Moncelier <moncelier@devlife.org>.
 # All Rights Reserved.
 #
-# usage: dcraw-fs \
+# usage: thumb-fs \
 #      -o root=/home/user/Pictures \
 #      -o loglevel=debug \
 #      -o width=300 -o height=200 \
-#      -o cache_dir=/tmp/dcraw_fs_cache /home/user/fuse/Pictures
+#      -o cache_dir=/tmp/thumb_fs_cache /home/user/fuse/Pictures
 #
 #
 # This file is dual licenced, you can choose one or both of the following
@@ -51,7 +51,7 @@ import logging.handlers
 fuse.fuse_python_api = (0, 2)
 
 
-log = logging.getLogger('dcrawfs')
+log = logging.getLogger('thumbfs')
 try:
     formatter = logging.Formatter("%(name)s[%(process)d]: %(levelname)s: %(message)s")
     syslogger = logging.handlers.SysLogHandler(
@@ -77,6 +77,13 @@ class DCRawFS(fuse.Fuse):
     and convert these images to JPEG using dcraw on the fly
     """
 
+    RAW_IMAGE_TYPES = frozenset((
+            'image/x-canon-cr2',
+            'image/x-canon-crw',
+            'image/x-nikon-nef',
+            'image/x-olympus-orf',
+            ))
+
     def is_valid(self, path):
         return (self.maxsize < 0 or
                 os.stat(self.root + path).st_size <= self.maxsize)
@@ -87,10 +94,8 @@ class DCRawFS(fuse.Fuse):
         return mimetype != None and mimetype.startswith('image/')
 
     def is_raw_file(self, path):
-        command_line = ['dcraw', '-i', self.root + path]
-        log.debug(command_line)
-        returncode = subprocess.call(command_line)
-        return returncode == 0
+        mimetype = mimetypes.guess_type(path)[0]
+        return mimetype in DCRawFS.RAW_IMAGE_TYPES
 
     def is_from_image(self, path):
         filename, extension = os.path.splitext(path)
@@ -159,7 +164,7 @@ class DCRawFS(fuse.Fuse):
         return fuse.Fuse.main(self, *a, **kw)
 
     def getattr(self, path):
-       log.debug('dcrawfs.getattr(%s)', path)
+       log.debug('thumbfs.getattr(%s)', path)
        try:
            if self.is_from_image(path):
                orig_path = self.orig_path(path)
@@ -182,7 +187,7 @@ class DCRawFS(fuse.Fuse):
            return -errno.ENOSYS
 
     def readdir(self, path, offset):
-        log.debug('dcrawfs.readdir(%s, %s)' % (path, offset))
+        log.debug('thumbfs.readdir(%s, %s)' % (path, offset))
         for entry in os.listdir(self.root + self.orig_path(path)):
             entrypath = os.path.join(path, entry)
             if self.is_valid(entrypath):
@@ -192,7 +197,7 @@ class DCRawFS(fuse.Fuse):
                     yield fuse.Direntry(entry)
 
     def open(self, path, flags):
-        log.debug('dcrawfs.open(%s, %s)' % (path, flags))
+        log.debug('thumbfs.open(%s, %s)' % (path, flags))
         if self._openedFiles.has_key(path):
             return
 
@@ -244,7 +249,7 @@ class DCRawFS(fuse.Fuse):
         self._openedFiles[path] = open(openname, 'rb')
 
     def read(self, path, length, offset):
-        log.debug('dcrawfs.read(path: %s, length: %s, offset: %s)' % (path, length, offset))
+        log.debug('thumbfs.read(path: %s, length: %s, offset: %s)' % (path, length, offset))
         self._openedFiles[path].seek(offset)
         return self._openedFiles[path].read(length)
 
@@ -280,7 +285,7 @@ if __name__ == '__main__':
             metavar = " ", help = "Log level {none, debug}")
 
     fs.root = "/"
-    fs.cache_dir = "/tmp/dcrawfs"
+    fs.cache_dir = "/tmp/thumbfs"
     fs.width = "1024"
     fs.height = "768"
     fs.maxsize = "-1"
