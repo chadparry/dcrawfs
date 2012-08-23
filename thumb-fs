@@ -72,7 +72,7 @@ class LoggingWrapper:
     def write(self, data):
         log.debug("[%s] %s" % (self.stream_name, data.rstrip('\n').lstrip('\n')))
 
-class DCRawFS(fuse.Fuse):
+class ThumbFS(fuse.Fuse):
     """
     This class alows to mount a directory containing RAW files
     and convert these images to JPEG using dcraw on the fly
@@ -85,19 +85,19 @@ class DCRawFS(fuse.Fuse):
             'image/x-olympus-orf',
             ))
 
-    def is_image(self, path):
+    def is_dir(self, path, stats):
+        return stat.S_ISDIR(stats.st_mode)
+
+    def is_image(self, path, stats):
         mimetype = mimetypes.guess_type(path)[0]
         return (mimetype != None and
                 mimetype.startswith('image/') and
                 (self.maxsize < 0 or
-                os.stat(self.root + path).st_size <= self.maxsize))
-
-    def is_dir(self, path):
-        return stat.S_ISDIR(os.stat(self.root + path).st_mode)
+                stats.st_size <= self.maxsize))
 
     def is_raw_file(self, path):
         mimetype = mimetypes.guess_type(path)[0]
-        return mimetype in DCRawFS.RAW_IMAGE_TYPES
+        return mimetype in ThumbFS.RAW_IMAGE_TYPES
 
     def is_from_image(self, path):
         filename, extension = os.path.splitext(path)
@@ -124,10 +124,10 @@ class DCRawFS(fuse.Fuse):
 
     def get_cached_filename(self, path):
         md5 = hashlib.md5()
-        stat = os.stat(self.root + path)
-        md5.update(str(stat.st_dev))
+        stats = os.stat(self.root + path)
+        md5.update(str(stats.st_dev))
         md5.update('/')
-        md5.update(str(stat.st_ino))
+        md5.update(str(stats.st_ino))
         return os.path.join(self.cache_dir,
                 '%s-%s.jpg' % (
                     md5.hexdigest(),
@@ -136,7 +136,7 @@ class DCRawFS(fuse.Fuse):
 
     def __init__(self, *args, **kw):
         """
-        DCRawFS Initialisation
+        ThumbFS Initialisation
         """
         fuse.Fuse.__init__(self, *args, **kw)
         self._openedFiles = {}
@@ -192,63 +192,63 @@ class DCRawFS(fuse.Fuse):
         log.debug('thumbfs.readdir(%s, %s)' % (path, offset))
         for entry in os.listdir(self.root + self.orig_path(path)):
             entrypath = os.path.join(path, entry)
-            if self.is_image(entrypath):
-                yield fuse.Direntry(entry + ".jpg")
-            elif self.is_dir(entrypath):
+            stats = os.stat(self.root + entrypath)
+            if self.is_dir(entrypath, stats):
                 yield fuse.Direntry(entry)
+            elif self.is_image(entrypath, stats):
+                yield fuse.Direntry(entry + ".jpg")
 
     def open(self, path, flags):
         log.debug('thumbfs.open(%s, %s)' % (path, flags))
         if self._openedFiles.has_key(path):
             return
 
-        if self.is_from_image(path):
-            filename = self.orig_path(path)
-            cachedname = self.get_cached_filename(filename)
-            log.debug('cachedname: from %s to %s' % (path, cachedname))
-            if os.path.exists(cachedname):
-                openname = cachedname
+        if not self.is_from_image(path):
+            return -errno.ENOENT
+
+        filename = self.orig_path(path)
+        cachedname = self.get_cached_filename(filename)
+        log.debug('cachedname: from %s to %s' % (path, cachedname))
+        if not os.path.exists(cachedname):
+            log.debug('Write thumbnail %s for path %s' % (cachedname, path))
+            if self.is_raw_file(filename):
+                dcraw_command_line = ['dcraw',
+                        '-c',
+                        '-w',
+                        '-W']
+                if self.profile:
+                    dcraw_command_line.extend(['-p', self.profile])
+                dcraw_command_line.append(self.root + filename)
+                convert_command_line = ['convert',
+                        '-thumbnail', '%sx%s' % (self.width, self.height),
+                        '-quality', '85',
+                        '-',
+                        cachedname]
+                log.debug((dcraw_command_line, convert_command_line))
+                dcraw_proc = subprocess.Popen(dcraw_command_line, stdout=subprocess.PIPE)
+                convert_proc = subprocess.Popen(convert_command_line, stdin=dcraw_proc.stdout)
+                dcraw_proc.stdout.close()
+                dcraw_returncode = dcraw_proc.wait()
+                convert_returncode = convert_proc.wait()
+                if dcraw_returncode != 0:
+                     log.error('The dcraw subprocess failed: %s' % (dcraw_command_line,))
+                     return -errno.ENOSYS
+                if convert_returncode != 0:
+                     log.error('The convert subprocess failed: %s' % (convert_command_line,))
+                     return -errno.ENOSYS
             else:
-                log.debug('Write thumbnail %s for path %s' % (cachedname, path))
-                if self.is_raw_file(filename):
-                    dcraw_command_line = ['dcraw',
-                            '-c',
-                            '-w',
-                            '-W']
-                    if self.profile:
-                        dcraw_command_line.extend(['-p', self.profile])
-                    dcraw_command_line.append(self.root + filename)
-                    convert_command_line = ['convert',
-                            '-thumbnail', '%sx%s' % (self.width, self.height),
-                            '-quality', '85',
-                            '-',
-                            cachedname]
-                    log.debug((dcraw_command_line, convert_command_line))
-                    dcraw_proc = subprocess.Popen(dcraw_command_line, stdout=subprocess.PIPE)
-                    convert_proc = subprocess.Popen(convert_command_line, stdin=dcraw_proc.stdout)
-                    dcraw_proc.stdout.close()
-                    dcraw_returncode = dcraw_proc.wait()
-                    convert_returncode = convert_proc.wait()
-                    if dcraw_returncode == 0 and convert_returncode == 0:
-                        openname = cachedname
-                    else:
-                        openname = self.root + filename
-                else:
-                    command_line = ['convert',
-                            '-auto-orient',
-                            '-thumbnail', '%sx%s' % (self.width, self.height),
-                            '-quality', '85',
-                            self.root + filename + '[0]',
-                            cachedname]
-                    log.debug(command_line)
-                    returncode = subprocess.call(command_line)
-                    if returncode == 0:
-                        openname = cachedname
-                    else:
-                        openname = self.root + filename
-        else:
-            openname = self.root + self.orig_path(path)
-        self._openedFiles[path] = open(openname, 'rb')
+                command_line = ['convert',
+                        '-auto-orient',
+                        '-thumbnail', '%sx%s' % (self.width, self.height),
+                        '-quality', '85',
+                        self.root + filename + '[0]',
+                        cachedname]
+                log.debug(command_line)
+                returncode = subprocess.call(command_line)
+                if returncode != 0:
+                     log.error('The convert subprocess failed: %s' % (command_line,))
+                     return -errno.ENOSYS
+        self._openedFiles[path] = open(cachedname, 'rb')
 
     def read(self, path, length, offset):
         log.debug('thumbfs.read(path: %s, length: %s, offset: %s)' % (path, length, offset))
@@ -263,9 +263,9 @@ class DCRawFS(fuse.Fuse):
         return 0
 
 if __name__ == '__main__':
-    usage = """DCRawFS: Raw image conversion file system for images in given directory tree\n""" + fuse.Fuse.fusage
+    usage = """ThumbsFS: File system to thumbnail images in given directory tree\n""" + fuse.Fuse.fusage
 
-    fs = DCRawFS(
+    fs = ThumbFS(
             version = "%prog" + fuse.__version__,
             usage = usage,
             dash_s_do = 'setsingle'
